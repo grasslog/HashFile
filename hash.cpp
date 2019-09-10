@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
+#include <regex>
 
 
 #define HASH_FILE_PATH "/home/grasslog/tmp/IP/ip_data.dat"
@@ -77,6 +78,7 @@ int main(void)
 	now = 0;
 	while (fscanf(in, "%s", buf) != EOF)
 	{
+		if(!is_IPAddress_valid(buf)) continue;
 		data = iton(buf);		// IP digitization
 		add = hash(data);		// math hash address
 		sprintf(hashfile, "/home/grasslog/tmp/hashfile/hashfile_%u.dat", add);
@@ -311,4 +313,14 @@ unsigned int iton(char *ip)
 		r += t;
 	}
 	return r;
+}
+
+// bool url address legal
+bool is_IPAddress_valid(const std::string& ipaddress)
+{
+   const std::regex pattern("(\\d{1,3}).(\\d{1,3}).(\\d{1,3}).(\\d{1,3})");
+   std:: match_results<std::string::const_iterator> result;
+   bool valid = std::regex_match(ipaddress, result, pattern);
+
+  	return valid;
 }
