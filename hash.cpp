@@ -3,8 +3,22 @@
 #include <time.h>
 #include <unistd.h>			// access()
 #include <string.h>
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include <algorithm>
 
-const int num = 100000000;		// url number  about 1GB
+
+#define HASH_FILE_PATH "/home/grasslog/tmp/IP/ip_data.dat"
+#define HASH_GENERATION_PATH "/home/grasslog/tmp/hashfile"
+#define BUFFER_SIZE 20
+
+const int num = 100000000;		// url number  
+const int TOP_URL_NUMBER = 100;
+const int HASH_FILE_NUMBER = 1000;
+
+node top_heap[TOP_URL_NUMBER];
+bool is_top_heap = false;
 
 unsigned int iton(char *ip);
 void ntoi(unsigned int num, char *ip);
@@ -15,40 +29,47 @@ int  random_write(const char *path);		// random generation url address
 void count(char *hashfile, unsigned int *data, unsigned int *num);
 void sort(unsigned int *max, unsigned int *ip, int n);		// sort url
 inline unsigned int hash(unsigned int ip)				// hash function
-{ return (ip % 1000); }
+{ return (ip % HASH_FILE_NUMBER); }
+void swap(node &a, node &b);		// local swap struct node function
 
-typedef struct node		// binary tree node
+typedef struct node		// storage struct node
 {
-	unsigned int ip;	// IP
+	std::string ip;	// IP
 	unsigned int n;		// occurrence number
-	node *left;
-	node *right;
+	node(std::string _ip, unsigned int _n):ip(_ip),n(_n) {}
+	node():ip(""),n(0) {}
 }node;
+
+// min root heap
+void insert_heap(node *a, int n, int m);
+void make_heap(node *a, int m);
 
 int main(void)
 {
 	FILE *in = NULL;
-	FILE *tmpfile[1005];
-	const char *path = "/home/grasslog/tmp/IP/ip_data.dat";
-	char hashfile[50];
-	char buf[20];
+	FILE *tmpfile[HASH_FILE_NUMBER];
+	const char *path = HASH_FILE_PATH;
+	char hashfile[HASH_FILE_NUMBER];
+	char buf[BUFFER_SIZE];
 	unsigned int add, data, n;
-	unsigned int ip[10], max[10];	// top 10 IP
+	unsigned int ip[TOP_URL_NUMBER], max[TOP_URL_NUMBER];	// top 10 IP
 	unsigned int t1, t2, s, e;		// record the time
 	int i, j, len, now;			// IP number
+	node top_heap[TOP_URL_NUMBER];
+	bool is_top_heap = false;
 
 	printf("Generating data %s\n\n", path);
 	if (!random_write(path)) return 0;	// random generation IP log file
 
 	// judge file exit, access() == 0 exit
-	if (access("/home/grasslog/tmp/hashfile", 0) == 0) 
-		system("rm -r /home/grasslog/tmp/hashfile");
-	system("mkdir /home/grasslog/tmp/hashfile");		// mkdir  /home/grasslog/tmp/hashfile working drectory
+	if (access(HASH_GENERATION_PATH, 0) == 0) 
+		system("rm -r HASH_GENERATION_PATH");
+	system("mkdir HASH_GENERATION_PATH");		// mkdir  /home/grasslog/tmp/hashfile working drectory
 	//system("attrib +h /home/grasslog/tmp/hashfile");
 
 	in = fopen(path, "rt");			// open IP log file
 	if (in == NULL) return 0;
-	for (i=0; i<1005; i++) tmpfile[i] = NULL;
+	for (i=0; i<TOP_URL_NUMBER; i++) tmpfile[i] = NULL;
 
 	// make 1000000000 IP hash in 1005 small files
 	printf("\r hashing %s\n\n", "/home/grasslog/tmp/hashfile");
@@ -79,7 +100,7 @@ int main(void)
 
 	// calculate top IP in each small files
 	for (i=0; i<10; i++) max[i] = 0;
-	for (i=0; i<1000; i++)
+	for (i=0; i<HASH_FILE_NUMBER; i++)
 	{
 		sprintf(hashfile, "/home/grasslog/tmp/hashfile/hashfile_%d.dat", i);
 		if (fileexist(hashfile))
@@ -128,7 +149,7 @@ void fclose_all(FILE **t)		// close all files
 {
 	int i;
 
-	for (i=0; i<1000; i++)
+	for (i=0; i<TOP_URL_NUMBER; i++)
 	{
 		if (t[i])
 		{
@@ -159,11 +180,11 @@ int random_write(const char *path)
 			printf("\rProcessing progress %0.2f %%\t", (i * 100.0) / num);
 			s = e;
 		}
-		for (j=0; j<20; j++) buf[j] = '\0';
+		for (j=0; j<BUFFER_SIZE; j++) buf[j] = '\0';
 		cur = buf;
 		for (j=0; j<4; j++) 
 		{
-			b = rand() % 255;
+			b = rand() % 256;
 			sprintf(cur, "%d.", b);
 			while (*cur != '\0') cur++;
 		}
@@ -174,98 +195,104 @@ int random_write(const char *path)
 	return 1;
 }
 
-// insert binary tree
-void insert(node **tree, unsigned int ip)
-{
-	if ((*tree) == NULL)
-	{
-		// new_node
-		(*tree) = (node *)malloc(sizeof(node));
-		(*tree)->ip = ip;
-		(*tree)->n = 1;
-		(*tree)->left = (*tree)->right = NULL;
-	}
-	else if ((*tree)->ip == ip)
-	{
-		(*tree)->n++;
-		return ;
-	}
-	else if (ip < (*tree)->ip)		// the left child tree
-		insert(&((*tree)->left), ip);
-	else insert(&((*tree)->right), ip);	// the right child tree
-}
-
-unsigned int maxn;		
-node *max_node;			
-void max_n(node *tree)	// find top node
-{
-	if (tree)
-	{
-		if (tree->n > maxn)
-		{
-			maxn = tree->n;
-			max_node = tree;
-		}
-		max_n(tree->left);
-		max_n(tree->right);
-	}
-}
-
-void destory(node *tree)		// free tree node space
-{
-	if (tree)
-	{
-		destory(tree->left);
-		destory(tree->right);
-		free(tree);
-	}
-}
-
 // calculate top IP in hashfile
-void count(char *hashfile, unsigned int *data, unsigned int *n)
+void count(char *hashfile)
 {
 	FILE *in = NULL;
-	node *tree = NULL;
-	unsigned int ip;
+	std::string ip;
+	std::unordered_map<std::string,int> ump;
 
 	in = fopen(hashfile, "rt");
-	while (fscanf(in, "%d", &ip) != EOF)
+	while(fscanf(in, "%s", &ip) != EOF)
 	{
-		insert(&tree, ip);
+		ump[ip]++;
+	}
+	std::vector<node> vec_node;
+	typedef std::unordered_map<std::string,int>::iterator ump_iterator;
+
+	for(ump_iterator it=ump.begin(); it!=ump.end(); ++it)
+	{
+		node t(it->first,it->second);
+		vec_node.push_back(t);
 	}
 	fclose(in);
-	maxn = 0;
-	max_n(tree);
-	*n = max_node->n;
-	*data = max_node->ip;
-	destory(tree);
-}
-
-// sort algorithm
-void sort(unsigned int *max, unsigned int *ip, int n)
-{
-	int i, j;
-	unsigned int tmpm, tmpi;
-
-	for (i=1; i<n; i++)
+	if(!is_top_heap)
 	{
-		if (max[i-1] < max[i])
+		is_top_heap = !is_top_heap;
+		memcpy(top_heap,&vec_node,sizeof(struct node)*TOP_URL_NUMBER);
+		make_heap(top_heap,TOP_URL_NUMBER);
+		for(int i=100; i<vec_node.size(); i++)
 		{
-			tmpm = max[i];
-			tmpi = ip[i];
-			for (j=i; j>0; j--)
+			node t = vec_node[i];
+			int w = top_heap[0].n;
+
+			if(t.n > w)
 			{
-				if (max[j-1] < tmpm)
-				{
-					max[j] = max[j-1];
-					ip[j]  = ip[j-1];
-				}
-				else break;
+				swap(t,top_heap[0]);	// local swap function
 			}
-			max[j] = tmpm;
-			ip[j]  = tmpi;
+			insert_heap(top_heap,0,TOP_URL_NUMBER);
 		}
 	}
+	else
+	{
+		for(int i=0; i<vec_node.size(); i++)
+		{
+			node t = vec_node[i];
+			int w = top_heap[0].n;
+
+			if(t.n > w)
+			{
+				swap(t, top_heap[0]);
+			}
+			insert_heap(top_heap,0,TOP_URL_NUMBER);
+		}
+	}
+	
+}
+
+void insert_heap(node *heap, int n, int m)
+{
+	node t = heap[n];
+	int w = t.n;
+	int i = n;
+	int j = 2 * i + 1;
+	
+	while(j < m)
+	{
+		if(j+1<m && heap[j+1].n<heap[j].n)
+			++j;
+
+		if(heap[j].n < w)
+			heap[i] = heap[j];
+		else break;
+
+		i = j;
+		j = 2 * i + 1;
+	}
+	
+	heap[j] = t;
+}
+
+void make_heap(node *heap, int m)
+{
+	for(int i=m/2; i>=0; i--)
+	{
+		insert_heap(heap,i,m);
+	}
+}
+
+// judge file exist
+int fileexist(char *path)
+{
+	FILE *fp = NULL;
+
+	fp = fopen(path, "rt");
+	if (fp)
+	{
+		fclose(fp);
+		return 1;
+	}
+	else return 0;
 }
 
 // IP to int
@@ -284,37 +311,4 @@ unsigned int iton(char *ip)
 		r += t;
 	}
 	return r;
-}
-
-// num to IP
-void ntoi(unsigned int num, char *ip)
-{
-	unsigned int b, f;
-	int i, cur;
-
-	f = 0x00FFFFFF;
-	cur = 0;
-	for (i=3; i>=0; i--)
-	{
-		b = num >> (i * 8);
-		num = num & f;
-		f = f >> 8;
-		sprintf(ip + cur, "%u.", b);
-		while (ip[cur] != '\0') cur++;
-	}
-	ip[cur - 1] = '\0';
-}
-
-// judge file exist
-int fileexist(char *path)
-{
-	FILE *fp = NULL;
-
-	fp = fopen(path, "rt");
-	if (fp)
-	{
-		fclose(fp);
-		return 1;
-	}
-	else return 0;
 }
